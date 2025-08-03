@@ -1,0 +1,155 @@
+import javax.swing.*;
+import java.awt.Color;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.geom.Ellipse2D;
+import java.io.*;
+import java.nio.file.*;
+import java.util.*;
+
+public class Reducer03 {
+
+    public static File libraryFolder; // Set via button 1
+
+    public static void main(String[] args) {
+        JFrame j = new JFrame("Video Deduplicator");
+        CircularButton b1 = new CircularButton("Library");
+        CircularButton b2 = new CircularButton("Unique");
+
+        b1.setBounds(100, 25, 80, 80);
+        b2.setBounds(100, 110, 80, 80);
+
+        b1.addActionListener(e -> {
+            File selected = chooseFolder();
+            if (selected != null) {
+                libraryFolder = selected;
+                System.out.println("Library folder set: " + selected.getAbsolutePath());
+            } else {
+                System.out.println("Library folder not selected.");
+            }
+        });
+
+        b2.addActionListener(e -> {
+            File uniqueFolder = chooseFolder();
+            if (uniqueFolder != null && libraryFolder != null) {
+                handleDeduplication(libraryFolder, uniqueFolder);
+            } else {
+                System.out.println("Please select both folders.");
+            }
+        });
+
+        j.setLayout(null);
+        j.setSize(300, 300);
+        j.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        j.add(b1);
+        j.add(b2);
+        j.setVisible(true);
+    }
+
+    public static File chooseFolder() {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+        return chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION ? chooser.getSelectedFile() : null;
+    }
+
+    public static void handleDeduplication(File library, File unique) {
+        File[] libFiles = library.listFiles();
+        File[] uniqueFiles = unique.listFiles();
+
+        if (libFiles == null || uniqueFiles == null) return;
+
+        HashMap<Long, List<File>> sizeMap = new HashMap<>();
+        for (File f : uniqueFiles) {
+            if (f.isFile()) {
+                long size = f.length();
+                sizeMap.computeIfAbsent(size, k -> new ArrayList<>()).add(f);
+            }
+        }
+
+        for (File libFile : libFiles) {
+            if (!libFile.isFile()) continue;
+            long size = libFile.length();
+
+            boolean isDuplicate = false;
+
+            if (sizeMap.containsKey(size)) {
+                for (File uFile : sizeMap.get(size)) {
+                    try {
+                        if (filesAreEqual(libFile, uFile)) {
+                            System.out.println("Exact duplicate found: " + libFile.getName() + " — deleting.");
+                            libFile.delete();
+                            isDuplicate = true;
+                            break;
+                        }
+                    } catch (IOException ex) {
+                        System.out.println("Error comparing files: " + ex.getMessage());
+                    }
+                }
+            }
+
+            if (!isDuplicate) {
+                moveWithUniqueName(libFile, unique);
+                sizeMap.computeIfAbsent(size, k -> new ArrayList<>()).add(new File(unique, libFile.getName()));
+            }
+        }
+    }
+
+    public static void moveWithUniqueName(File src, File destDir) {
+        String baseName = src.getName();
+        File destFile = new File(destDir, baseName);
+        int counter = 1;
+
+        while (destFile.exists()) {
+            String name = "(" + counter + ")_" + baseName;
+            destFile = new File(destDir, name);
+            counter++;
+        }
+
+        try {
+            Files.move(src.toPath(), destFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            System.out.println("Moved unique file: " + destFile.getName());
+        } catch (IOException e) {
+            System.out.println("Failed to move: " + src.getName());
+            e.printStackTrace();
+        }
+    }
+
+    public static boolean filesAreEqual(File f1, File f2) throws IOException {
+        if (f1.length() != f2.length()) return false;
+
+        try (InputStream is1 = new BufferedInputStream(new FileInputStream(f1));
+             InputStream is2 = new BufferedInputStream(new FileInputStream(f2))) {
+
+            int b1, b2;
+            while ((b1 = is1.read()) != -1) {
+                b2 = is2.read();
+                if (b1 != b2) return false;
+            }
+        }
+        return true;
+    }
+}
+class CircularButton extends JButton {
+    public CircularButton(String label) {
+        super(label);
+        setContentAreaFilled(false);
+        setFocusPainted(false);
+        setBorderPainted(false);
+    }
+
+    @Override
+    protected void paintComponent(Graphics g) {
+        Graphics2D g2 = (Graphics2D) g;
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g2.setColor(getModel().isArmed() ? Color.LIGHT_GRAY : Color.CYAN);
+        g2.fillOval(0, 0, getWidth(), getHeight());
+        super.paintComponent(g);
+    }
+
+    @Override
+    public boolean contains(int x, int y) {
+        Ellipse2D shape = new Ellipse2D.Float(0, 0, getWidth(), getHeight());
+        return shape.contains(x, y);
+    }
+}
